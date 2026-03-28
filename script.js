@@ -1,252 +1,129 @@
+// --- INITIALIZATION ---
 const chatBox = document.getElementById("chatBox");
 const userInput = document.getElementById("userInput");
 const sendBtn = document.getElementById("sendBtn");
 const clearBtn = document.getElementById("clearBtn");
 
-const STORAGE_KEY = "mami_chan_memory_v3";
-const SESSION_KEY = "mami_chan_session_id";
-
-let conversationMemory = loadConversation();
-let sessionId = loadOrCreateSessionId();
 let isSending = false;
+// Persistent sessionId so she remembers you across refreshes
+let sessionId = localStorage.getItem("mami_session_id") || "user_" + Math.random().toString(36).substr(2, 9);
+localStorage.setItem("mami_session_id", sessionId);
 
-function loadOrCreateSessionId() {
-  try {
-    const saved = localStorage.getItem(SESSION_KEY);
+// --- UPGRADED UI HELPERS ---
 
-    if (saved && typeof saved === "string" && saved.trim()) {
-      return saved;
-    }
-
-    const newId =
-      "session_" +
-      Date.now().toString(36) +
-      "_" +
-      Math.random().toString(36).slice(2, 10);
-
-    localStorage.setItem(SESSION_KEY, newId);
-    return newId;
-  } catch (error) {
-    console.error("Failed to load/create session ID:", error);
-    return "default";
-  }
-}
-
-function loadConversation() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    const parsed = saved ? JSON.parse(saved) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    console.error("Failed to load conversation:", error);
-    return [];
-  }
-}
-
-function saveConversation() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(conversationMemory));
-  } catch (error) {
-    console.error("Failed to save conversation:", error);
-  }
-}
-
-function escapeHtml(str) {
-  return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function createMessageElement(text, className) {
-  const message = document.createElement("div");
-  message.classList.add("message", className);
-  message.innerHTML = escapeHtml(text);
-  return message;
+// Simulates Mami-chan's typing speed
+async function typeWriter(text, element) {
+    let i = 0;
+    const speed = 30; 
+    return new Promise((resolve) => {
+        function type() {
+            if (i < text.length) {
+                element.textContent += text.charAt(i);
+                i++;
+                setTimeout(type, speed);
+                scrollToBottom();
+            } else {
+                resolve();
+            }
+        }
+        type();
+    });
 }
 
 function scrollToBottom() {
-  chatBox.scrollTop = chatBox.scrollHeight;
-}
-
-function getWelcomeMessage() {
-  return "hey, you made it. what's your name?";
-}
-
-function renderConversation() {
-  chatBox.innerHTML = "";
-
-  if (conversationMemory.length === 0) {
-    chatBox.appendChild(
-      createMessageElement(getWelcomeMessage(), "bot-message")
-    );
-    scrollToBottom();
-    return;
-  }
-
-  for (const item of conversationMemory) {
-    const className = item.role === "user" ? "user-message" : "bot-message";
-    chatBox.appendChild(createMessageElement(item.text, className));
-  }
-
-  scrollToBottom();
-}
-
-function addMessage(role, text) {
-  const normalizedRole = role === "user" ? "user" : "assistant";
-  const safeText = String(text || "").trim();
-
-  if (!safeText) return;
-
-  conversationMemory.push({
-    role: normalizedRole,
-    text: safeText,
-  });
-
-  saveConversation();
-
-  const className = normalizedRole === "user" ? "user-message" : "bot-message";
-  chatBox.appendChild(createMessageElement(safeText, className));
-  scrollToBottom();
-}
-
-function showTypingIndicator() {
-  removeTypingIndicator();
-
-  const typingEl = document.createElement("div");
-  typingEl.classList.add("message", "bot-message", "typing");
-  typingEl.id = "typingIndicator";
-  typingEl.textContent = "Mami-chan is typing...";
-  chatBox.appendChild(typingEl);
-  scrollToBottom();
-}
-
-function removeTypingIndicator() {
-  const typingEl = document.getElementById("typingIndicator");
-  if (typingEl) typingEl.remove();
+    chatBox.scrollTop = chatBox.scrollHeight;
 }
 
 function setInputState(disabled) {
-  userInput.disabled = disabled;
-  sendBtn.disabled = disabled;
+    isSending = disabled;
+    userInput.disabled = disabled;
+    sendBtn.disabled = disabled;
+    if (!disabled) userInput.focus();
 }
 
-async function getBotReply(text) {
-  const payload = {
-    message: text,
-    sessionId,
-    messages: conversationMemory,
-  };
-
-  const res = await fetch("/chat", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-session-id": sessionId,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  let rawText = "";
-  let data = {};
-
-  try {
-    rawText = await res.text();
-    data = rawText ? JSON.parse(rawText) : {};
-  } catch (error) {
-    console.error("Failed to parse /chat response:", error, rawText);
-    data = {};
-  }
-
-  if (data?.sessionId && typeof data.sessionId === "string") {
-    sessionId = data.sessionId;
-
-    try {
-      localStorage.setItem(SESSION_KEY, sessionId);
-    } catch (error) {
-      console.error("Failed to save session ID:", error);
+async function appendMessage(text, role) {
+    const msgDiv = document.createElement("div");
+    msgDiv.className = `message ${role === "user" ? "user-message" : "bot-message"}`;
+    
+    if (role === "user") {
+        msgDiv.textContent = text;
+        chatBox.appendChild(msgDiv);
+        scrollToBottom();
+    } else {
+        msgDiv.textContent = ""; 
+        chatBox.appendChild(msgDiv);
+        await typeWriter(text, msgDiv);
     }
-  }
-
-  if (!res.ok) {
-    const message = data?.reply || data?.message || `Server error ${res.status}`;
-    throw new Error(message);
-  }
-
-  return data?.reply || "say that again.";
 }
+
+// --- CORE ACTION ---
 
 async function sendMessage() {
-  if (isSending) return;
+    const message = userInput.value.trim();
+    if (!message || isSending) return;
 
-  const text = userInput.value.trim();
-  if (!text) return;
+    appendMessage(message, "user");
+    userInput.value = "";
+    setInputState(true);
 
-  isSending = true;
-  setInputState(true);
+    // Mami-chan "thinking" messages
+    const insults = [
+        "mami-chan is judging your typing...",
+        "mami-chan is rolling her eyes...",
+        "mami-chan is thinking of a comeback...",
+        "mami-chan is wondering why you're still here..."
+    ];
+    const randomInsult = insults[Math.floor(Math.random() * insults.length)];
 
-  addMessage("user", text);
-  userInput.value = "";
-  showTypingIndicator();
+    const typingIndicator = document.createElement("div");
+    typingIndicator.className = "message bot-message typing-indicator";
+    typingIndicator.textContent = randomInsult;
+    chatBox.appendChild(typingIndicator);
+    scrollToBottom();
 
-  try {
-    const reply = await getBotReply(text);
-    removeTypingIndicator();
-    addMessage("assistant", reply);
-  } catch (error) {
-    console.error("sendMessage error:", error);
-    removeTypingIndicator();
-    addMessage("assistant", "something glitched, but i'm still here.");
-  } finally {
-    isSending = false;
-    setInputState(false);
-    userInput.focus();
-  }
+    try {
+        const response = await fetch("/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message, sessionId })
+        });
+
+        const data = await response.json();
+        typingIndicator.remove();
+
+        if (data.reply) {
+            await appendMessage(data.reply, "assistant");
+        }
+        
+        // If the server updated your name, we could log it here
+        if (data.userName && data.userName !== "stranger") {
+            console.log("Mami-chan knows you are:", data.userName);
+        }
+
+    } catch (error) {
+        if (typingIndicator) typingIndicator.remove();
+        appendMessage("my brain glitched. stop being so confusing.", "assistant");
+    } finally {
+        setInputState(false);
+    }
 }
 
-async function clearConversation() {
-  removeTypingIndicator();
-
-  try {
-    await fetch("/clear", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-session-id": sessionId,
-      },
-      body: JSON.stringify({ sessionId }),
-    });
-  } catch (error) {
-    console.error("Failed to clear server memory:", error);
-  }
-
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(SESSION_KEY);
-  } catch (error) {
-    console.error("Failed to clear local storage:", error);
-  }
-
-  conversationMemory = [];
-  sessionId = loadOrCreateSessionId();
-
-  chatBox.innerHTML = "";
-  renderConversation();
-  userInput.value = "";
-  userInput.focus();
-}
+// --- EVENT LISTENERS ---
 
 sendBtn.addEventListener("click", sendMessage);
 
-userInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
+userInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") sendMessage();
 });
 
-clearBtn.addEventListener("click", clearConversation);
-
-renderConversation();
+clearBtn.addEventListener("click", async () => {
+    if (confirm("Reset Mami-chan's memory? She might get mad...")) {
+        await fetch("/clear", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId })
+        });
+        chatBox.innerHTML = "";
+        appendMessage("...who are you again? don't talk to me.", "assistant");
+    }
+});

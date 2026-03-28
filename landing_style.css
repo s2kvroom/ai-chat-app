@@ -1,0 +1,45 @@
+body {
+  margin: 0;
+  background: #0d0d0d;
+  color: #fff;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  text-align: center;
+  overflow: hidden;
+}
+
+..landing-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 30px; /* Increased gap to prevent overlapping */
+  padding: 20px;
+}
+
+.clean-gif-button {
+  width: 320px; /* Slightly wider for this specific GIF */
+  height: auto;
+  border-radius: 15px; /* Rounded corners but not a circle */
+  border: 3px solid hotpink;
+  box-shadow: 0 0 20px rgba(255, 105, 180, 0.6);
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.clean-gif-button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 40px hotpink;
+  filter: brightness(1.1);
+}
+
+.subtitle-hint {
+  margin-top: 15px;
+  color: #ffdae9;
+  font-weight: bold;
+  text-shadow: 0 0 10px hotpink;
+  font-size: 1.1rem;
+  text-align: center;
+}
